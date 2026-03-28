@@ -1,2 +1,9 @@
 /__pycache__
 /test.ipynb
+/mini_spark/__pycache__
+/mini_spark/execution/__pycache__
+/mini_spark/rdd/__pycache__
+/mini_spark/shuffle/__pycache__
+/mini_spark/storage/__pycache__
+/mini_spark/tests/__pycache__
+/mini_spark/utils/__pycache__
