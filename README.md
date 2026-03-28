@@ -1,4 +1,5 @@
 ## Mini-Spark
+> Spark Study
 
 ### Architecture
 ```
@@ -161,7 +162,7 @@ output partitions
 최소 기능:
 - RDD 생성
 
-### 반드시 구현해야 하는 기능 순서
+### 구현 순서
 STEP 1: RDD + map/filter + collect
 
 - DAG + lazy 구조 완성
