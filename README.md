@@ -22,25 +22,6 @@ mini_spark/
 │   └── partition.py
 │
 ├── context.py
-└── utils/mini_spark/
-├── rdd/
-│   ├── rdd.py
-│   ├── transformations.py
-│   └── actions.py
-│
-├── execution/
-│   ├── scheduler.py
-│   ├── stage.py
-│   └── task.py
-│
-├── shuffle/
-│   ├── shuffle_manager.py
-│   └── partitioner.py
-│
-├── storage/
-│   └── partition.py
-│
-├── context.py
 └── utils/
 ```
 
