@@ -4,17 +4,25 @@
 ### 디렉토리 구조
 ```
 mini_spark/
-├─ context.py         # SparkContext
-├─ rdd.py             # RDD
-├─ scheduler.py       # Scheduler
-├─ storage/
-│  └─ partition.py    # Partition
-├─ shuffle/
-│  ├─ shuffle_manager.py
-│  └─ partitioner.py
-├─ transformations/
-├─ actions/
-└─ tests/
+├── rdd/
+│   ├── rdd.py              # RDD
+│   ├── transformations.py  # Transformation
+│   └── actions.py          # Actions
+│
+├── execution/
+│   ├── scheduler.py        # Scheduler
+│   ├── stage.py
+│   └── task.py
+│
+├── shuffle/
+│   ├── shuffle_manager.py # ShuffleManager
+│   └── partitioner.py     # Partitioner
+│
+├── storage/
+│   └── partition.py       # Partition
+│
+├── context.py             # SparkContext
+└── utils/
 ```
 
 - RDD: 분산 데이터셋, partition 단위로 저장
