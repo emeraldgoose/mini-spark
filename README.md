@@ -16,7 +16,7 @@ mini_spark/
 │
 ├── shuffle/
 │   ├── shuffle_manager.py # ShuffleManager
-│   └── partitioner.py     # Partitioner
+│   └── partitioner.py     # HashPartitioner
 │
 ├── storage/
 │   └── partition.py       # Partition
