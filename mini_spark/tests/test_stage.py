@@ -16,8 +16,8 @@ class TestExecutionModel(unittest.TestCase):
         # 내부 DAG 검사 (구현 필요)
         stages = rdd2.get_stages()
 
-        # map은 narrow → 같은 stage
-        # reduceByKey는 shuffle → stage 분리
+        # map은 narrow -> 같은 stage
+        # reduceByKey는 shuffle -> stage 분리
         self.assertEqual(len(stages), 2)
 
     def test_task_per_partition(self):

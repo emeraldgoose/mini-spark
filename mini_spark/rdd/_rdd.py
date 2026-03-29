@@ -1,7 +1,25 @@
-from typing import List, Any, Union, Callable, Optional
+from typing import List, Any, Callable, Optional
 
-from mini_spark.execution.scheduler import Scheduler
+from mini_spark.execution.task import Task
+from mini_spark.rdd.transformations import (
+    MapTransformation,
+    FilterTransformation,
+    FlatMapTransformation,
+    GroupByKeyTransformation,
+    ReduceByKeyTransformation
+)
+from mini_spark.rdd.actions import Actions
 from mini_spark.storage.partition import Partition
+
+WIDE_TRANSFORMATIONS = (
+    GroupByKeyTransformation, 
+    ReduceByKeyTransformation
+)
+NARROW_TRANSFORMATIONS = (
+    MapTransformation, 
+    FilterTransformation, 
+    FlatMapTransformation
+)
 
 
 class RDD:
@@ -9,32 +27,68 @@ class RDD:
             self, 
             partitions: Optional[List[Partition]] = None,
             prev: Optional["RDD"] = None,
-            op: Optional[Union[str, Callable[[Any], Any]]] = None,
-            lineage: Optional[str] = None
+            transformation: Optional[MapTransformation] = None,
+            num_partitions: int = 2,
+            lineage: Optional[str] = None,
+            context: Optional["SparkContext"] = None
         ):
         self.partitions = partitions
         self.prev = prev
-        self.op = op
-    
-    def map(self, func: Callable[[Any], Any]):
-        return RDD(prev=self, op=("map", func))
+        self.transformation = transformation
+        self.num_partitions = num_partitions
+        self.lineage = lineage
+        self.context = context
 
-    def filter(self, func: Callable[[Any], Any]):
-        return RDD(prev=self, op=("filter", func))
-    
-    def flatMap(self, func: Callable[[Any], Any]):
-        return RDD(prev=self, op=("flatMap", func))
-    
-    def groupByKey(self):
-        return RDD(prev=self, op=("groupByKey", None))
-    
-    def reduceByKey(self, func: Callable[[Any, Any], Any]):
-        return RDD(prev=self, op=("reduceByKey", func))
-    
+    def map(self, func: Callable[[Any], Any]) -> "RDD":
+        return RDD(
+            prev=self, 
+            transformation=MapTransformation(func), 
+            num_partitions=self.num_partitions, 
+            context=self.context
+        )
+
+    def filter(self, func: Callable[[Any], Any]) -> "RDD":
+        return RDD(
+            prev=self, 
+            transformation=FilterTransformation(func), 
+            num_partitions=self.num_partitions, 
+            context=self.context
+        )
+
+    def flatMap(self, func: Callable[[Any], Any]) -> "RDD":
+        return RDD(
+            prev=self, 
+            transformation=FlatMapTransformation(func), 
+            num_partitions=self.num_partitions, 
+            context=self.context
+        )
+
+    def groupByKey(self) -> "RDD":
+        return RDD(
+            prev=self, 
+            transformation=GroupByKeyTransformation(), 
+            num_partitions=self.num_partitions, 
+            context=self.context
+        )
+
+    def reduceByKey(self, func: Callable[[Any, Any], Any]) -> "RDD":
+        return RDD(
+            prev=self, 
+            transformation=ReduceByKeyTransformation(func, num_partitions=self.num_partitions), 
+            num_partitions=self.num_partitions, 
+            context=self.context
+        )
+
     def collect(self):
-        return Scheduler().run(self)
+        return Actions.collect(self)
 
-    def get_num_partitions(self):
+    def count(self):
+        return Actions.count(self)
+
+    def take(self, n: int):
+        return Actions.take(self, n)
+
+    def get_num_partitions(self) -> int:
         if self.partitions is not None:
             return len(self.partitions)
         
@@ -43,3 +97,27 @@ class RDD:
         
         else:
             return 0
+        
+    def get_stages(self) -> List["RDD"]:
+        def is_shuffle_boundary(rdd: "RDD") -> bool:
+            return rdd.transformation is not None and isinstance(rdd.transformation, WIDE_TRANSFORMATIONS)
+
+        stages = []
+        current_stage = []
+        current = self
+
+        # transformation의 WIDE_TRANSFORMATIONS는 새로운 Stage의 시작
+        while current is not None:
+            current_stage.insert(0, current)
+            if is_shuffle_boundary(current) or current.prev is None:
+                stages.insert(0, current_stage[0])
+                current_stage = []
+            current = current.prev
+        return stages[::-1]  # 역순으로 반환하여 실행 순서대로 정렬
+    
+    def get_tasks(self) -> List["RDD"]:
+        # Task: Worker에서 실행할 최소 실행 단위
+        tasks = []
+        for partition in self.partitions:
+            tasks.append(Task(partition, self))
+        return tasks
