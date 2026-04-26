@@ -205,10 +205,10 @@ class TestShuffleDiskPersistence(unittest.TestCase):
             if pid not in partitions:
                 partitions[pid] = []
             partitions[pid].append((k, v))
-
+        
         self.assertEqual(len(partitions), 3, "Should have 3 partitions")
-
-        self.assertEqual(
+        
+        self.assertCountEqual(
             partitions.get(0, []) + partitions.get(1, []) + partitions.get(2, []),
             data,
             "All data should be in some partition",
