@@ -312,7 +312,7 @@ class TestCacheWithWideTransformations(unittest.TestCase):
         rdd2 = rdd.reduceByKey(lambda x, y: x + y)
 
         cached = rdd2.cache()
-
+        
         result1 = cached.collect()
         result2 = cached.collect()
 
@@ -350,12 +350,12 @@ class TestCachePersistence(unittest.TestCase):
         rdd2 = rdd.map(lambda x: x * 2)
         rdd3 = rdd2.filter(lambda x: x > 2)
 
+        result1 = rdd3.collect()
         rdd2.cache()
 
-        result1 = rdd2.collect()
         result2 = rdd3.collect()
-
-        self.assertEqual(set(result1), set(result2), "Cache should not affect dependent RDD results")
+        
+        self.assertEqual(result1, result2)
 
     def test_is_cached_flag(self):
         """
@@ -373,7 +373,7 @@ class TestCachePersistence(unittest.TestCase):
                 or hasattr(cached_rdd, "persist_level")
                 or hasattr(cached_rdd, "_storage_level")
             )
-
+            
             self.assertTrue(
                 has_persist_level, "RDD should track storage level of cached data"
             )
