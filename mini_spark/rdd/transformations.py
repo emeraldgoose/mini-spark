@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Callable, List, Any
+from typing import Callable, List, Any, Iterator
 
 from mini_spark.storage.partition import Partition
 from mini_spark.shuffle.partitioner import HashPartitioner
@@ -8,22 +8,24 @@ class MapTransformation:
     def __init__(self, func: Callable[[Any], Any]):
         self.func = func
 
-    def apply(self, partition: Partition):
-        return [Partition([self.func(x) for x in part.data]) for part in partition]
+    def apply(self, iterator: Iterator[Any]) -> Iterator[Any]:
+        return (self.func(x) for x in iterator)
 
 class FilterTransformation:
     def __init__(self, func: Callable[[Any], Any]):
         self.func = func
 
-    def apply(self, partition: Partition):
-        return [Partition([x for x in part.data if self.func(x)]) for part in partition]
+    def apply(self, iterator: Iterator[Any]) -> Iterator[Any]:
+        return (x for x in iterator if self.func(x))
 
 class FlatMapTransformation:
     def __init__(self, func: Callable[[Any], Any]):
         self.func = func
 
-    def apply(self, partition: Partition):
-        return [Partition([y for x in part.data for y in self.func(x)]) for part in partition]
+    def apply(self, iterator: Iterator[Any]) -> Iterator[Any]:
+        for x in iterator:
+            for y in self.func(x):
+                yield y
 
 class GroupByKeyTransformation:
     def __init__(self):

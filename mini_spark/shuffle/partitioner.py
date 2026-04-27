@@ -1,7 +1,8 @@
 import hashlib
 
 def stable_hash(key: str) -> int:
-    return int(hashlib.md5(key.encode()).hexdigest(), 16)
+    # h = int(hashlib.md5(key.encode()).hexdigest(), 16)
+    return sum(ord(c) for c in key)
 
 class HashPartitioner:
     def __init__(self, num_partitions):

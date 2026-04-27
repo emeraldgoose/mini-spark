@@ -1,4 +1,4 @@
-from typing import List, Any, Callable, Optional
+from typing import List, Any, Callable, Optional, Iterator
 
 from mini_spark.execution.task import Task
 from mini_spark.rdd.transformations import (
@@ -41,7 +41,8 @@ class RDD:
 
     def map(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
-            prev=self, 
+            prev=self,
+            partitions=self.partitions,
             transformation=MapTransformation(func), 
             num_partitions=self.num_partitions, 
             context=self.context
@@ -50,6 +51,7 @@ class RDD:
     def filter(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
             prev=self, 
+            partitions=self.partitions,
             transformation=FilterTransformation(func), 
             num_partitions=self.num_partitions, 
             context=self.context
@@ -58,6 +60,7 @@ class RDD:
     def flatMap(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
             prev=self, 
+            partitions=self.partitions,
             transformation=FlatMapTransformation(func), 
             num_partitions=self.num_partitions, 
             context=self.context
@@ -66,18 +69,24 @@ class RDD:
     def groupByKey(self) -> "RDD":
         return RDD(
             prev=self, 
+            partitions=self.partitions,
             transformation=GroupByKeyTransformation(), 
             num_partitions=self.num_partitions, 
             context=self.context
         )
 
     def reduceByKey(self, func: Callable[[Any, Any], Any]) -> "RDD":
-        return RDD(
+        new_rdd = RDD(
             prev=self, 
             transformation=ReduceByKeyTransformation(func, num_partitions=self.num_partitions), 
             num_partitions=self.num_partitions, 
             context=self.context
         )
+    
+        parent_partitions = self.context.scheduler.execute(self)
+        self.context.scheduler.shuffle_manager.write(parent_partitions)
+        
+        return new_rdd
 
     def collect(self):
         return Actions.collect(self)
@@ -119,5 +128,13 @@ class RDD:
         # Task: Worker에서 실행할 최소 실행 단위
         tasks = []
         for partition in self.partitions:
-            tasks.append(Task(partition, self))
+            tasks.append(Task(rdd=self, partition=partition))
         return tasks
+    
+    def compute(self, split: Partition) -> Iterator[Any]:
+        if self.prev is None:
+            # Base RDD: 이미 파티션이 존재하므로 해당 파티션의 데이터를 반환
+            return iter(split.data)
+        
+        parent_iter = self.prev.compute(split)
+        return self.transformation.apply(parent_iter)
