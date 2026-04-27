@@ -154,7 +154,7 @@ class TestDAGScheduler(unittest.TestCase):
         Each element in the returned list should be an RDD that can be
         executed independently as a stage.
         """
-        rdd = self.sc.parallelize([1, 2, 3], 2)
+        rdd = self.sc.parallelize([("a", 1), ("b", 2), ("a", 3)], 2)
         rdd2 = rdd.reduceByKey(lambda x, y: x + y)
 
         stages = rdd2.get_stages()
