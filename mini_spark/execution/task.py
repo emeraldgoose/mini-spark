@@ -1,4 +1,5 @@
 from typing import Callable
+from collections import defaultdict
 
 from mini_spark.storage.partition import Partition
 
@@ -31,3 +32,17 @@ class ReduceTask(Task):
             result.append((k, res))
 
         return result
+    
+class GroupByKeyTask(Task):
+    def __init__(self, partition_id: int, shuffle_manager: "ShuffleManager"):
+        self.partition_id = partition_id
+        self.shuffle_manager = shuffle_manager
+
+    def run(self):
+        data = self.shuffle_manager.read(partition_id=self.partition_id)
+
+        grouped = defaultdict(list)
+        for k, v in data:
+            grouped.setdefault(k, []).append(v)
+
+        return list(grouped.items())

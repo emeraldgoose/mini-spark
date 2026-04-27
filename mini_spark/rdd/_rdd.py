@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import List, Any, Callable, Optional, Iterator
 
 from mini_spark.execution.task import Task
@@ -22,6 +23,12 @@ NARROW_TRANSFORMATIONS = (
 )
 
 
+class StorageLevel(Enum):
+    MEMORY_ONLY = 1
+    MEMORY_AND_DISK = 2
+    DISK_ONLY = 3
+
+
 class RDD:
     def __init__(
             self, 
@@ -38,6 +45,10 @@ class RDD:
         self.num_partitions = num_partitions
         self.lineage = lineage
         self.context = context
+
+        self.is_cached = False
+        self.cached_data = {}
+        self._storage_level = None
 
     def map(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
@@ -131,10 +142,37 @@ class RDD:
             tasks.append(Task(rdd=self, partition=partition))
         return tasks
     
-    def compute(self, split: Partition) -> Iterator[Any]:
+    def compute(self, split: Partition):
+        if self.is_cached and split.partition_id in self.cached_data:
+            return iter(self.cached_data[split.partition_id])
+        
         if self.prev is None:
-            # Base RDD: 이미 파티션이 존재하므로 해당 파티션의 데이터를 반환
             return iter(split.data)
         
         parent_iter = self.prev.compute(split)
-        return self.transformation.apply(parent_iter)
+        result_iter = self.transformation.apply(parent_iter)
+
+        result_list = list(result_iter)
+
+        if self.is_cached:
+            self.cached_data[split.partition_id] = result_list
+
+        return iter(result_list)
+
+    def cache(self) -> "RDD":
+        self.is_cached = True
+        self.cached_data = {}  # partition_id → data
+        return self.persist(StorageLevel.MEMORY_ONLY)
+    
+    def persist(self, storage_level: StorageLevel = StorageLevel.MEMORY_ONLY) -> "RDD":
+        self.is_cached = True
+        self._storage_level = storage_level
+        self.cached_data = {}
+        return self
+    
+    def unpersist(self) -> "RDD":
+        # RDD의 캐시된 데이터를 제거하여 메모리를 해제
+        self.is_cached = False
+        self._storage_level = None
+        self.cached_data = {}
+        return self

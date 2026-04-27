@@ -1,8 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Any
 
-from mini_spark.execution.task import ReduceTask, Task
-from mini_spark.rdd.transformations import ReduceByKeyTransformation
+from mini_spark.execution.task import GroupByKeyTask, ReduceTask, Task
+from mini_spark.rdd.transformations import GroupByKeyTransformation, ReduceByKeyTransformation
 from mini_spark.shuffle.shuffle_manager import ShuffleManager
 from mini_spark.storage.partition import Partition
 
@@ -29,6 +29,23 @@ class Scheduler:
 
             reduce_tasks = [
                 ReduceTask(partition_id=pid, shuffle_manager=self.shuffle_manager, func=rdd.transformation.func) 
+                for pid in range(rdd.transformation.num_partitions)
+            ]
+
+            results = []
+            for t in reduce_tasks:
+                results.extend(t.run())
+            
+            return results
+        
+        if isinstance(rdd.transformation, GroupByKeyTransformation):
+            map_tasks = rdd.prev.get_tasks()
+
+            map_results = [Partition(t.run()) for t in map_tasks]
+            self.shuffle_manager.write(map_results)
+            
+            reduce_tasks = [
+                GroupByKeyTask(pid, self.shuffle_manager)
                 for pid in range(rdd.transformation.num_partitions)
             ]
 

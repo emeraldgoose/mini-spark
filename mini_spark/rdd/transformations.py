@@ -28,18 +28,10 @@ class FlatMapTransformation:
                 yield y
 
 class GroupByKeyTransformation:
-    def __init__(self):
-        self.func = None
+    def __init__(self, num_partitions: int = 2):
+        self.num_partitions = num_partitions
+        self.partitioner = HashPartitioner(self.num_partitions)
 
-    def apply(self, partitions: List[Partition]):
-        shuffle_dict = defaultdict(list)
-
-        for part in partitions:
-            for k, v in part.data:
-                shuffle_dict[k].append(v)
-
-        return [Partition([(k, v) for k, v in shuffle_dict.items()])]
-    
 class ReduceByKeyTransformation:
     def __init__(self, func: Callable[[Any, Any], Any], num_partitions: int = 2):
         self.func = func

@@ -16,7 +16,7 @@ class SparkContext:
         for i in range(num_partitions):
             start = i * chunk_size
             end = (i + 1) * chunk_size if i < num_partitions - 1 else len(data)
-            partitions.append(Partition(data[start:end]))
+            partitions.append(Partition(data[start:end], partition_id=i))
         
         return RDD(partitions=partitions, num_partitions=num_partitions, context=self)
 
