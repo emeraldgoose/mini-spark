@@ -8,6 +8,7 @@ class SparkContext:
     def __init__(self):
         self.rdd = None
         self.scheduler = Scheduler()
+        self.checkpoint_dir = None
     
     def parallelize(self, data: List[Any], num_partitions: int = 1) -> "RDD":
         chunk_size = len(data) // num_partitions
@@ -22,3 +23,6 @@ class SparkContext:
 
     def textFile(self, filepath: str):
         ...
+
+    def get_checkpoint_dir(self):
+        return self.checkpoint_dir

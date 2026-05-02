@@ -49,6 +49,8 @@ class RDD:
         self.is_cached = False
         self.cached_data = {}
         self._storage_level = None
+        
+        self._is_checkpointed = False
 
     def map(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
@@ -158,6 +160,10 @@ class RDD:
             self.cached_data[split.partition_id] = result_list
 
         return iter(result_list)
+    
+    def recompute(self, partition_id: int):
+        part = self.partitions[partition_id]
+        return list(self.compute(part))
 
     def cache(self) -> "RDD":
         self.is_cached = True
@@ -176,3 +182,14 @@ class RDD:
         self._storage_level = None
         self.cached_data = {}
         return self
+
+    def checkpoint(self):
+        data = self.collect()
+
+        self.partitions = [Partition(list(data))] # repartition_data()
+        self.prev = None
+        self.transformation = None
+        self.lineage = None
+        self._is_checkpointed = True
+        return self
+        
