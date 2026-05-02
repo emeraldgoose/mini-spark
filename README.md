@@ -5,14 +5,14 @@
 ```
 mini_spark/
 ├── rdd/
-│   ├── rdd.py              # RDD
+│   ├── _rdd.py             # RDD
 │   ├── transformations.py  # Transformation
 │   └── actions.py          # Actions
 │
 ├── execution/
 │   ├── scheduler.py        # Scheduler
-│   ├── stage.py
-│   └── task.py
+│   ├── stage.py            # Stage
+│   └── task.py             # Task
 │
 ├── shuffle/
 │   ├── shuffle_manager.py # ShuffleManager
@@ -26,16 +26,18 @@ mini_spark/
 ```
 
 - RDD: 분산 데이터셋, partition 단위로 저장
+    - cache, persist, checkpoint
 - Transformations (Lazy Evaluation)
-    - map, filter, flatMap
-    - groupByKey, reduceByKey (wide transformation)
-- Actions (실제 실행)
-    - collect(), count()
+    - Narrow: map, filter, flatMap
+    - Wide: groupByKey, reduceByKey (wide transformation)
+- Actions
+    - 실제 연산 트리거
+    - collect(), count(), take()
 - Scheduler: RDD DAG 실행 담당
-- ShuffleManager: wide transformation 처리
-- Partitioner: key 기반 hash partitioning
+- ShuffleManager: Shuffle 관리
+- Partitioner: key 기반 파티셔닝
 - Stage & Task:
-    - Stage: shuffle 단위로 구분
+    - Stage: shuffle 기준으로 작업의 논리적 단위
     - Task: stage 내 각 partition 실행 단위
 
 ### 사용예시
