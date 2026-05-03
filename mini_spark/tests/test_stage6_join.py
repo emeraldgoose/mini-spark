@@ -108,8 +108,17 @@ class TestJoinMultiple(unittest.TestCase):
         rdd2 = self.sc.parallelize([("a", 10), ("b", 20), ("c", 30)], 2)
 
         result = rdd1.join(rdd2).collect()
-
-        self.assertEqual(len(result), 3, "Should have 3 joined results")
+        
+        self.assertEqual(
+            sorted(result),
+            sorted([
+                ('a',(1,10)),
+                ('a',(2,10)),
+                ('b',(3,20)),
+                ('c',(4,30)),
+            ]),
+            "join should produce correct pairs for multiple values per key"
+        )
 
     def test_join_multiple_values_per_key(self):
         """
