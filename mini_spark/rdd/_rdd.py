@@ -6,8 +6,10 @@ from mini_spark.rdd.transformations import (
     MapTransformation,
     FilterTransformation,
     FlatMapTransformation,
+    JoinTransformation,
     GroupByKeyTransformation,
-    ReduceByKeyTransformation
+    ReduceByKeyTransformation,
+    CogroupTransformation
 )
 from mini_spark.rdd.actions import Actions
 from mini_spark.storage.partition import Partition
@@ -34,27 +36,31 @@ class RDD:
             self, 
             partitions: Optional[List[Partition]] = None,
             prev: Optional["RDD"] = None,
+            parents: Optional[List["RDD"]] = None,
             transformation: Optional[MapTransformation] = None,
             num_partitions: int = 2,
             lineage: Optional[str] = None,
-            context: Optional["SparkContext"] = None
+            context: Optional["SparkContext"] = None, 
         ):
+        self.prev = prev # 초기 테스트 코드를 통과하기 위해 남겨둔 필드 (현재는 parents[0]로 대체)
         self.partitions = partitions
-        self.prev = prev
         self.transformation = transformation
         self.num_partitions = num_partitions
         self.lineage = lineage
         self.context = context
+        self.parents = parents or []
 
         self.is_cached = False
         self.cached_data = {}
         self._storage_level = None
         
         self._is_checkpointed = False
+        self.requires_shuffle = False
 
     def map(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
             prev=self,
+            parents=[self],
             partitions=self.partitions,
             transformation=MapTransformation(func), 
             num_partitions=self.num_partitions, 
@@ -63,7 +69,8 @@ class RDD:
 
     def filter(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
-            prev=self, 
+            prev=self,
+            parents=[self],
             partitions=self.partitions,
             transformation=FilterTransformation(func), 
             num_partitions=self.num_partitions, 
@@ -72,7 +79,8 @@ class RDD:
 
     def flatMap(self, func: Callable[[Any], Any]) -> "RDD":
         return RDD(
-            prev=self, 
+            prev=self,
+            parents=[self],
             partitions=self.partitions,
             transformation=FlatMapTransformation(func), 
             num_partitions=self.num_partitions, 
@@ -81,7 +89,8 @@ class RDD:
 
     def groupByKey(self) -> "RDD":
         return RDD(
-            prev=self, 
+            prev=self,
+            parents=[self],
             partitions=self.partitions,
             transformation=GroupByKeyTransformation(), 
             num_partitions=self.num_partitions, 
@@ -90,7 +99,8 @@ class RDD:
 
     def reduceByKey(self, func: Callable[[Any, Any], Any]) -> "RDD":
         new_rdd = RDD(
-            prev=self, 
+            prev=self,
+            parents=[self],
             transformation=ReduceByKeyTransformation(func, num_partitions=self.num_partitions), 
             num_partitions=self.num_partitions, 
             context=self.context
@@ -100,6 +110,90 @@ class RDD:
         self.context.scheduler.shuffle_manager.write(parent_partitions)
         
         return new_rdd
+
+    def join(self, other: "RDD") -> "RDD":
+        new_rdd = RDD(
+            prev=self,
+            parents=[self, other],
+            transformation=JoinTransformation(
+                other=other,
+                num_partitions=self.num_partitions
+            ),
+            num_partitions=min(self.num_partitions, other.num_partitions),
+            context=self.context
+        )
+
+        parent_partitions = self.context.scheduler.execute(self)
+        self.context.scheduler.shuffle_manager.write(parent_partitions)
+        self.requires_shuffle = True
+
+        return new_rdd
+
+    def left_outer_join(self, other: "RDD") -> "RDD":
+        new_rdd = RDD(
+            prev=self,
+            parents=[self, other],
+            transformation=JoinTransformation(
+                other=other,
+                num_partitions=self.num_partitions,
+                join_type="left_outer"
+            ),
+            num_partitions=min(self.num_partitions, other.num_partitions),
+            context=self.context
+        )
+
+        parent_partitions = self.context.scheduler.execute(self)
+        self.context.scheduler.shuffle_manager.write(parent_partitions)
+        self.requires_shuffle = True
+
+        return new_rdd
+    
+    def right_outer_join(self, other: "RDD") -> "RDD":
+        new_rdd = RDD(
+            prev=self,
+            parents=[self, other],
+            transformation=JoinTransformation(
+                other=other,
+                num_partitions=self.num_partitions,
+                join_type="right_outer"
+            ),
+            num_partitions=min(self.num_partitions, other.num_partitions),
+            context=self.context
+        )
+
+        parent_partitions = self.context.scheduler.execute(self)
+        self.context.scheduler.shuffle_manager.write(parent_partitions)
+        self.requires_shuffle = True
+
+        return new_rdd
+    
+    def full_outer_join(self, other: "RDD") -> "RDD":
+        new_rdd = RDD(
+            prev=self,
+            parents=[self, other],
+            transformation=JoinTransformation(
+                other=other,
+                num_partitions=self.num_partitions,
+                join_type="full_outer"
+            ),
+            num_partitions=min(self.num_partitions, other.num_partitions),
+            context=self.context
+        )
+
+        parent_partitions = self.context.scheduler.execute(self)
+        self.context.scheduler.shuffle_manager.write(parent_partitions)
+        self.requires_shuffle = True
+
+        return new_rdd
+
+    def cogroup(self, *others) -> "RDD":
+        return RDD(
+            prev=self,
+            parents=[self, *others],
+            transformation=CogroupTransformation(len(others)+1),
+            context=self.context,
+            num_partitions=min(self.num_partitions, *(o.num_partitions for o in others))
+        )
 
     def collect(self):
         return Actions.collect(self)
@@ -111,31 +205,23 @@ class RDD:
         return Actions.take(self, n)
 
     def get_num_partitions(self) -> int:
-        if self.partitions is not None:
-            return len(self.partitions)
-        
-        elif self.prev is not None:
-            return self.prev.get_num_partitions()
-        
-        else:
-            return 0
+        return self.num_partitions
         
     def get_stages(self) -> List["RDD"]:
-        def is_shuffle_boundary(rdd: "RDD") -> bool:
-            return rdd.transformation is not None and isinstance(rdd.transformation, WIDE_TRANSFORMATIONS)
-
         stages = []
-        current_stage = []
-        current = self
 
-        # transformation의 WIDE_TRANSFORMATIONS는 새로운 Stage의 시작
-        while current is not None:
-            current_stage.insert(0, current)
-            if is_shuffle_boundary(current) or current.prev is None:
-                stages.insert(0, current_stage[0])
-                current_stage = []
-            current = current.prev
-        return stages[::-1]  # 역순으로 반환하여 실행 순서대로 정렬
+        def visit(rdd):
+            for p in rdd.parents:
+                visit(p)
+
+            if (
+                rdd.transformation is None
+                or isinstance(rdd.transformation, WIDE_TRANSFORMATIONS)
+            ):
+                stages.append(rdd)
+        
+        visit(self)
+        return stages
     
     def get_tasks(self) -> List["RDD"]:
         # Task: Worker에서 실행할 최소 실행 단위
@@ -148,10 +234,10 @@ class RDD:
         if self.is_cached and split.partition_id in self.cached_data:
             return iter(self.cached_data[split.partition_id])
         
-        if self.prev is None:
+        if not self.parents:
             return iter(split.data)
         
-        parent_iter = self.prev.compute(split)
+        parent_iter = self.parents[0].compute(split)
         result_iter = self.transformation.apply(parent_iter)
 
         result_list = list(result_iter)
@@ -187,9 +273,7 @@ class RDD:
         data = self.collect()
 
         self.partitions = [Partition(list(data))] # repartition_data()
-        self.prev = None
         self.transformation = None
         self.lineage = None
         self._is_checkpointed = True
         return self
-        

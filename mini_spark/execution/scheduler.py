@@ -1,8 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
 from typing import List, Any
 
 from mini_spark.execution.task import GroupByKeyTask, ReduceTask, Task
-from mini_spark.rdd.transformations import GroupByKeyTransformation, ReduceByKeyTransformation
+from mini_spark.rdd.transformations import (
+    GroupByKeyTransformation, 
+    ReduceByKeyTransformation, 
+    JoinTransformation,
+    CogroupTransformation
+)
 from mini_spark.shuffle.shuffle_manager import ShuffleManager
 from mini_spark.storage.partition import Partition
 
@@ -26,10 +32,19 @@ class Scheduler:
 
         execute(rdd3) -> execute(rdd2) -> execute(rdd1) -> rdd1.partitions 변환
         """
-        if rdd.prev is None:
+        # Base RDD
+        if not rdd.parents:
             return rdd.partitions
-        return self.execute(rdd.prev)
+        
+        # join transformation인 경우 별도 처리
+        if isinstance(rdd.transformation, JoinTransformation):
+            return self._execute_join(rdd)
+
+        return self.execute(rdd.parents[0])
     
+    def _execute_join(self, rdd):
+        ...
+
     def run(self, rdd: "RDD"):
         """
         Action(collect 등) 실행 진입점
@@ -37,13 +52,22 @@ class Scheduler:
         transformation 종류에 따라 실행 방식 분기
         1. reduceByKey: shuffle 필요
         2. groupByKey: shuffle 필요
-        3. 일반 map/filter/flatMap: 일반 Task 실행
+        3. join: shuffle 필요
+        4. 일반 map/filter/flatMap: 일반 Task 실행
         """
         if isinstance(rdd.transformation, ReduceByKeyTransformation):
             return self._run_reduce_by_key(rdd)
         
         if isinstance(rdd.transformation, GroupByKeyTransformation):
             return self._run_group_by_key(rdd)
+        
+        if isinstance(rdd.transformation, JoinTransformation):
+            # join도 shuffle 필요하지만, 여기서는 간단히 일반 Task 실행으로 처리
+            return self._run_join(rdd)
+        
+        if isinstance(rdd.transformation, CogroupTransformation):
+            # cogroup도 shuffle 필요하지만, 여기서는 간단히 일반 Task 실행으로 처리
+            return self._run_cogroup(rdd)  # join과 유사한 방식으로 처리
         
         return self._run_normal_task(rdd)
     
@@ -65,7 +89,7 @@ class Scheduler:
         """
 
         # 1. parent RDD를 partition 단위로 실행
-        parent_rdd = rdd.prev
+        parent_rdd = rdd.parents[0]
 
         # 결과를 partiton_id 기준 dict로 받음
         map_tasks = parent_rdd.get_tasks()
@@ -102,7 +126,7 @@ class Scheduler:
         Stage 2: shuffle
         Stage 3: group reduce task
         """
-        parent_rdd = rdd.prev
+        parent_rdd = rdd.parents[0]
 
         # 부모 RDD 실행
         map_tasks = parent_rdd.get_tasks()
@@ -149,6 +173,104 @@ class Scheduler:
             results.extend(partition_results[pid])
         
         return results
+
+    def _run_join(self, rdd: "RDD"):
+        """
+        join 실행 흐름
+
+        1. 양쪽 RDD의 map side task 실행
+        2. key 기준 hash join
+        3. join 결과 생성
+        """
+        left_rdd = rdd.parents[0]
+        right_rdd = rdd.transformation.other
+        join_type = rdd.transformation.join_type
+
+        # 1. 양쪽 RDD의 map side task 실행
+        left_tasks = left_rdd.get_tasks()
+        right_tasks = right_rdd.get_tasks()
+
+        left_data = self._run_tasks_parallel(left_tasks)
+        right_data = self._run_tasks_parallel(right_tasks)
+
+        # 2. key 기준 hash join
+        left_map = defaultdict(list)
+        right_map = defaultdict(list)
+
+        for k, v in left_data:
+            left_map[k].append(v)
+
+        for k, v in right_data:
+            right_map[k].append(v)
+
+        # 3. join 결과 생성
+        join_results = []
+        all_keys = set(left_map.keys()) | set(right_map.keys())
+
+        for k in all_keys:
+            lvals = left_map.get(k, [])
+            rvals = right_map.get(k, [])
+
+            # inner join
+            if lvals and rvals:
+                for lv in lvals:
+                    for rv in rvals:
+                        join_results.append((k, (lv, rv)))
+        
+            elif join_type == "left_outer":
+                for lv in lvals:
+                    join_results.append((k, (lv, None)))
+            
+            elif join_type == "right_outer":
+                for rv in rvals:
+                    join_results.append((k, (None, rv)))
+            
+            elif join_type == "full_outer":
+                if lvals and not rvals:
+                    for lv in lvals:
+                        join_results.append((k, (lv, None)))
+                elif rvals and not lvals:
+                    for rv in rvals:
+                        join_results.append((k, (None, rv)))
+                else:
+                    for lv in lvals:
+                        for rv in rvals:
+                            join_results.append((k, (lv, rv)))
+        
+        return join_results
+
+    def _run_cogroup(self, rdd: "RDD"):
+        grouped = self._shuffle_multi_parent(rdd.parents)
+
+        results = []
+
+        for key, buckets in grouped.items():
+            # buckets: List[List[values from each RDD]]
+            results.append((key, tuple(buckets)))
+        
+        return results
+
+    def _shuffle_multi_parent(self, parents: List["RDD"]):
+        """
+        여러 부모 RDD를 shuffle하여 key 기준으로 그룹화
+
+        결과:
+        {
+            key1: [values from RDD1, values from RDD2, ...],
+            key2: [values from RDD1, values from RDD2, ...],
+            ...
+        }
+        """
+        grouped = defaultdict(lambda: [[] for _ in parents])
+
+        for idx, parent in enumerate(parents):
+            tasks = parent.get_tasks()
+            results = self._run_tasks_parallel(tasks)
+
+            for k, v in results:
+                grouped[k][idx].append(v)
+
+        return grouped
 
     def _run_tasks_parallel_with_partition(self, tasks: List[Task]):
         """

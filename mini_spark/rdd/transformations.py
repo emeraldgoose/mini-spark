@@ -27,6 +27,17 @@ class FlatMapTransformation:
             for y in self.func(x):
                 yield y
 
+class JoinTransformation:
+    def __init__(self, other: "RDD", num_partitions: int = 2, join_type: str = "inner"):
+        self.other = other
+        self.num_partitions = num_partitions
+        self.join_type = join_type
+
+class CogroupTransformation:
+    def __init__(self, num_rdds: int, num_partitions: int = 2):
+        self.num_rdds = num_rdds
+        self.num_partitions = num_partitions
+
 class GroupByKeyTransformation:
     def __init__(self, num_partitions: int = 2):
         self.num_partitions = num_partitions
